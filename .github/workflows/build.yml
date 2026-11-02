@@ -348,9 +348,10 @@ jobs:
           KS_PASS: ${{ secrets.KEY_PASSWORD }}
         run: gradle --no-daemon assembleRelease bundleRelease
       - name: Show the signing fingerprint
+        continue-on-error: true
         run: |
           APK=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
-          keytool -printcert -jarfile "$APK" | grep -E "Owner|SHA256"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" || true
       - name: Upload APK and AAB
         uses: actions/upload-artifact@v4
         with:
