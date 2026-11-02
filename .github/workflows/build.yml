@@ -1,0 +1,361 @@
+name: Build PeerPath Android
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Accept Android licenses and install platform
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" || true
+      - name: Create the Android project
+        run: |
+          set -euo pipefail
+          mkdir -p android && cd android
+          mkdir -p .
+          cat > settings.gradle <<'PEEPEOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = 'PeerPath'
+          include ':app'
+          PEEPEOF
+          mkdir -p .
+          cat > build.gradle <<'PEEPEOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          PEEPEOF
+          mkdir -p .
+          cat > gradle.properties <<'PEEPEOF'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=false
+          android.nonTransitiveRClass=true
+          PEEPEOF
+          mkdir -p app
+          cat > app/build.gradle <<'PEEPEOF'
+          plugins {
+              id 'com.android.application'
+          }
+          def vc = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+          android {
+              namespace 'com.peerpath.app'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'com.peerpath.app'
+                  minSdk 24
+                  targetSdk 35
+                  versionCode vc
+                  versionName '1.0.' + vc
+              }
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv('KS_FILE'))
+                      storePassword System.getenv('KS_PASS')
+                      keyAlias 'peerpath'
+                      keyPassword System.getenv('KS_PASS')
+                  }
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig signingConfigs.release
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              lint {
+                  abortOnError false
+                  checkReleaseBuilds false
+              }
+          }
+          PEEPEOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'PEEPEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:label="PeerPath"
+                  android:icon="@mipmap/ic_launcher"
+                  android:allowBackup="false"
+                  android:usesCleartextTraffic="false"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait"
+                      android:windowSoftInputMode="adjustResize"
+                      android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|density">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          PEEPEOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/colors.xml <<'PEEPEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_bg">#0B6E6E</color>
+          </resources>
+          PEEPEOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'PEEPEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+                  <item name="android:windowBackground">@color/ic_bg</item>
+              </style>
+          </resources>
+          PEEPEOF
+          mkdir -p app/src/main/res/values-night
+          cat > app/src/main/res/values-night/themes.xml <<'PEEPEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+                  <item name="android:windowBackground">@color/ic_bg</item>
+              </style>
+          </resources>
+          PEEPEOF
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'PEEPEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_bg" />
+              <foreground android:drawable="@drawable/ic_fg" />
+          </adaptive-icon>
+          PEEPEOF
+          mkdir -p app/src/main/assets
+          cat > app/src/main/assets/offline.html <<'PEEPEOF'
+          <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PeerPath</title><style>body{margin:0;font-family:sans-serif;background:#0f1a1c;color:#eaf4f3;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;box-sizing:border-box}button{margin-top:18px;padding:14px 26px;border:0;border-radius:14px;background:#4fd1c5;color:#06201e;font-size:16px;font-weight:700}</style></head><body><div><h2>You are offline</h2><p>PeerPath needs the internet. Check your connection and try again.</p><button onclick="location.href='https://astounding-pothos-fd678b.netlify.app/'">Try again</button></div></body></html>
+          PEEPEOF
+          mkdir -p app/src/main/java/com/peerpath/app
+          cat > app/src/main/java/com/peerpath/app/MainActivity.java <<'PEEPEOF'
+          package com.peerpath.app;
+
+          import android.app.Activity;
+          import android.content.ActivityNotFoundException;
+          import android.content.Intent;
+          import android.graphics.Color;
+          import android.graphics.Insets;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.print.PrintAttributes;
+          import android.print.PrintManager;
+          import android.view.View;
+          import android.view.WindowInsets;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+
+          public class MainActivity extends Activity {
+              private static final String HOST = "astounding-pothos-fd678b.netlify.app";
+              private static final String HOME = "https://" + HOST + "/";
+              private static final int FILE_REQ = 1001;
+              private WebView web;
+              private ValueCallback<Uri[]> fileCb;
+
+              @Override
+              protected void onCreate(Bundle saved) {
+                  super.onCreate(saved);
+                  FrameLayout root = new FrameLayout(this);
+                  root.setBackgroundColor(Color.parseColor("#0B6E6E"));
+                  web = new WebView(this);
+                  root.addView(web, new FrameLayout.LayoutParams(
+                          FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                  setContentView(root);
+                  root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+                      @Override
+                      public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
+                          int l, t, r, b;
+                          if (Build.VERSION.SDK_INT >= 30) {
+                              Insets i = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
+                              l = i.left; t = i.top; r = i.right; b = i.bottom;
+                          } else {
+                              l = insets.getSystemWindowInsetLeft();
+                              t = insets.getSystemWindowInsetTop();
+                              r = insets.getSystemWindowInsetRight();
+                              b = insets.getSystemWindowInsetBottom();
+                          }
+                          v.setPadding(l, t, r, b);
+                          return insets;
+                      }
+                  });
+                  setupWebView();
+                  if (saved == null || web.restoreState(saved) == null) {
+                      web.loadUrl(HOME);
+                  }
+              }
+
+              private void setupWebView() {
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setAllowFileAccess(false);
+                  s.setAllowContentAccess(false);
+                  s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+                  s.setUserAgentString(s.getUserAgentString() + " PeerPathApp/1");
+                  web.addJavascriptInterface(new Bridge(), "PeerPathNative");
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                          Uri u = request.getUrl();
+                          String sc = u.getScheme();
+                          if ("https".equals(sc) && HOST.equals(u.getHost())) return false;
+                          if ("file".equals(sc) && u.toString().startsWith("file:///android_asset/")) return false;
+                          if ("https".equals(sc) || "http".equals(sc) || "mailto".equals(sc) || "tel".equals(sc)) {
+                              try {
+                                  startActivity(new Intent(Intent.ACTION_VIEW, u));
+                              } catch (ActivityNotFoundException ignored) {
+                              }
+                          }
+                          return true;
+                      }
+
+                      @Override
+                      public void onPageFinished(WebView view, String url) {
+                          if (url != null && url.startsWith(HOME)) {
+                              view.evaluateJavascript("window.print=function(){PeerPathNative.print()};", null);
+                          }
+                      }
+
+                      @Override
+                      public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                          if (request.isForMainFrame()) {
+                              view.loadUrl("file:///android_asset/offline.html");
+                          }
+                      }
+                  });
+                  web.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams params) {
+                          if (fileCb != null) fileCb.onReceiveValue(null);
+                          fileCb = cb;
+                          try {
+                              startActivityForResult(params.createIntent(), FILE_REQ);
+                          } catch (Exception e) {
+                              fileCb = null;
+                              return false;
+                          }
+                          return true;
+                      }
+                  });
+              }
+
+              private class Bridge {
+                  @JavascriptInterface
+                  public void print() {
+                      runOnUiThread(new Runnable() {
+                          @Override
+                          public void run() {
+                              PrintManager pm = (PrintManager) getSystemService(PRINT_SERVICE);
+                              if (pm != null) {
+                                  pm.print("PeerPath", web.createPrintDocumentAdapter("PeerPath"),
+                                          new PrintAttributes.Builder().build());
+                              }
+                          }
+                      });
+                  }
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  if (requestCode == FILE_REQ) {
+                      if (fileCb != null) {
+                          fileCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+                          fileCb = null;
+                      }
+                      return;
+                  }
+                  super.onActivityResult(requestCode, resultCode, data);
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (web.canGoBack()) web.goBack();
+                  else super.onBackPressed();
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle out) {
+                  super.onSaveInstanceState(out);
+                  web.saveState(out);
+              }
+
+              @Override
+              protected void onPause() {
+                  web.onPause();
+                  super.onPause();
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  web.onResume();
+              }
+
+              @Override
+              protected void onDestroy() {
+                  web.destroy();
+                  super.onDestroy();
+              }
+          }
+          PEEPEOF
+          mkdir -p app/src/main/res/drawable-nodpi app/src/main/res/mipmap-xxhdpi
+          curl -fsSL https://astounding-pothos-fd678b.netlify.app/icon-maskable-512.png -o app/src/main/res/drawable-nodpi/ic_fg.png
+          curl -fsSL https://astounding-pothos-fd678b.netlify.app/icon-192.png -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/peerpath.keystore"
+          test -s "$RUNNER_TEMP/peerpath.keystore"
+      - name: Build signed APK and AAB
+        working-directory: android
+        env:
+          KS_FILE: ${{ runner.temp }}/peerpath.keystore
+          KS_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: gradle --no-daemon assembleRelease bundleRelease
+      - name: Show the signing fingerprint
+        run: |
+          APK=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
+          keytool -printcert -jarfile "$APK" | grep -E "Owner|SHA256"
+      - name: Upload APK and AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: PeerPath-APK-AAB
+          retention-days: 90
+          path: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/bundle/release/*.aab
