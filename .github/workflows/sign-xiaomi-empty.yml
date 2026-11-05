@@ -1,0 +1,26 @@
+name: Sign Xiaomi empty APK
+on:
+  workflow_dispatch:
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0" || true
+      - name: Sign the empty APK
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          mkdir out
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/k.keystore"
+          AS="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$AS" sign --ks "$RUNNER_TEMP/k.keystore" --ks-key-alias peerpath --ks-pass env:KS_PASS --key-pass env:KS_PASS --out out/com.xiaomi.getapps.signature.verification.apk xiaomi-empty.apk
+          "$AS" verify -v --print-certs out/com.xiaomi.getapps.signature.verification.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Xiaomi-empty-APK-signed
+          path: out/com.xiaomi.getapps.signature.verification.apk
